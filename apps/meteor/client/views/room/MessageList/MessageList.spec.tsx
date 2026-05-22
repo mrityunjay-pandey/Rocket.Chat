@@ -12,6 +12,7 @@ const mockVirtualizerHandle = {
 	scrollToIndex: jest.fn(),
 	scrollTo: jest.fn(),
 	findItemIndex: jest.fn((offset: number) => offset),
+	getItemOffset: jest.fn((index: number) => index * 100),
 	scrollOffset: 0,
 	scrollSize: 1000,
 	viewportSize: 300,
@@ -127,6 +128,7 @@ describe('MessageList scroll position', () => {
 		mockVirtualizerHandle.scrollToIndex.mockClear();
 		mockVirtualizerHandle.scrollTo.mockClear();
 		mockVirtualizerHandle.findItemIndex.mockImplementation((offset: number) => offset);
+		mockVirtualizerHandle.getItemOffset.mockImplementation((index: number) => index * 100);
 		mockVirtualizerHandle.scrollOffset = 0;
 		mockVirtualizerHandle.scrollSize = 1000;
 		mockVirtualizerHandle.viewportSize = 300;

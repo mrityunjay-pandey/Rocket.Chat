@@ -14,6 +14,7 @@ import { useRoomSubscription } from '../contexts/RoomContext';
 import { useFirstUnreadMessageId } from '../hooks/useFirstUnreadMessageId';
 import { SelectedMessagesProvider } from '../providers/SelectedMessagesProvider';
 import { useMessages } from './hooks/useMessages';
+import { useScrollAnchor } from './hooks/useScrollAnchor';
 import useTryToJumpToMessage from './hooks/useTryToJumpToMessage';
 import { isMessageSequential } from './lib/isMessageSequential';
 import MessageListProvider from './providers/MessageListProvider';
@@ -187,6 +188,12 @@ export const MessageList = function MessageList({
 
 	const storeScrollPosition = useStoreScrollPosition({ rid, isAtBottom, virtualizerRef });
 
+	const { updateTopAnchor } = useScrollAnchor({
+		virtualizerRef,
+		isAtBottom,
+		suppress: isJumpingToMessage || shouldJumpToBottom,
+	});
+
 	const subscription = useRoomSubscription();
 	const showUserAvatar = !!useUserPreference<boolean>('displayAvatars');
 	const messageGroupingPeriod = useSetting('Message_GroupingPeriod', 300);
@@ -250,8 +257,8 @@ export const MessageList = function MessageList({
 						storeScrollPosition();
 						debouncedClearNewMessagesOnScroll();
 
-						const handle = virtualizerRef.current;
-						const topMessage = handle ? messages[handle.findItemIndex(handle.scrollOffset) - (canPreview ? 1 : 0)] : undefined;
+						const topItemIndex = updateTopAnchor();
+						const topMessage = virtualizerRef.current ? messages[topItemIndex - (canPreview ? 1 : 0)] : undefined;
 						handleTopVisibleMessage(topMessage);
 						handleDateScroll(topMessage);
 						debouncedMessageRead();

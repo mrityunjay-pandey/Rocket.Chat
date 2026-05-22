@@ -11,6 +11,23 @@ import { mapMessageFromApi } from '../../../../lib/utils/mapMessageFromApi';
 import { setMessageJumpQueryStringParameter } from '../../../../lib/utils/setMessageJumpQueryStringParameter';
 import { clearHighlightMessage, setHighlightMessage } from '../providers/messageHighlightSubscription';
 
+const isMessageFullyVisible = (messageId: string): boolean => {
+	if (typeof document === 'undefined') {
+		return false;
+	}
+	const scroller = document.querySelector('.messages-list');
+	if (!(scroller instanceof HTMLElement)) {
+		return false;
+	}
+	const messageEl = scroller.querySelector(`[data-id="${CSS.escape(messageId)}"]`);
+	if (!(messageEl instanceof HTMLElement)) {
+		return false;
+	}
+	const sRect = scroller.getBoundingClientRect();
+	const mRect = messageEl.getBoundingClientRect();
+	return mRect.top >= sRect.top && mRect.bottom <= sRect.bottom;
+};
+
 type UseTryToJumpToMessageProps = {
 	rid: string;
 	virtualizerRef: MutableRefObject<WindowVirtualizerHandle | null>;
@@ -68,10 +85,16 @@ const useTryToJumpToMessage = ({ rid, virtualizerRef, setIsJumpingToMessage, mes
 
 		const messageIndex = messages.indexOf(loadedMessage);
 
-		// TODO: Calculate the offset of the page, for the message to be in the center of the page
-		virtualizerRef.current?.scrollToIndex(messageIndex, {
-			align: 'center',
-		});
+		// Skip the scroll-to-center when the target message is already fully visible. This
+		// prevents unnecessary jumps when opening a thread whose parent is already on screen,
+		// or when clicking a permalink to a message currently in view — in both cases the
+		// user expects only the highlight, not a layout shift.
+		if (!isMessageFullyVisible(loadedMessage._id)) {
+			// TODO: Calculate the offset of the page, for the message to be in the center of the page
+			virtualizerRef.current?.scrollToIndex(messageIndex, {
+				align: 'center',
+			});
+		}
 
 		setHighlightMessage(loadedMessage._id);
 
