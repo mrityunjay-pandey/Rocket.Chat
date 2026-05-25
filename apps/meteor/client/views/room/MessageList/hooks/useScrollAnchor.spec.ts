@@ -2,136 +2,160 @@ import { act, renderHook } from '@testing-library/react';
 import type { MutableRefObject } from 'react';
 import type { VirtualizerHandle } from 'virtua';
 
-import { useScrollAnchor } from './useScrollAnchor';
-
-type MockHandle = {
-	scrollOffset: number;
-	scrollSize: number;
-	viewportSize: number;
-	findItemIndex: jest.Mock;
-	getItemOffset: jest.Mock;
-	scrollTo: jest.Mock;
-};
-
-const makeHandle = (overrides: Partial<MockHandle> = {}): MockHandle => ({
-	scrollOffset: 0,
-	scrollSize: 1000,
-	viewportSize: 300,
-	findItemIndex: jest.fn((offset: number) => Math.floor(offset / 100)),
-	getItemOffset: jest.fn((index: number) => index * 100),
-	scrollTo: jest.fn(),
-	...overrides,
-});
-
-const refTo = (handle: MockHandle): MutableRefObject<VirtualizerHandle | null> => ({ current: handle as unknown as VirtualizerHandle });
-
-const installRaf = () => {
-	let nextId = 1;
-	const queue = new Map<number, FrameRequestCallback>();
-	const originalRaf = globalThis.requestAnimationFrame;
-	const originalCancel = globalThis.cancelAnimationFrame;
-	globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
-		const id = nextId++;
-		queue.set(id, cb);
-		return id;
-	}) as typeof requestAnimationFrame;
-	globalThis.cancelAnimationFrame = ((id: number) => {
-		queue.delete(id);
-	}) as typeof cancelAnimationFrame;
-	return {
-		flush: () => {
-			const next = queue.entries().next().value;
-			if (next) {
-				const [id, cb] = next;
-				queue.delete(id);
-				cb(0);
-			}
-		},
-		uninstall: () => {
-			globalThis.requestAnimationFrame = originalRaf;
-			globalThis.cancelAnimationFrame = originalCancel;
-			queue.clear();
-		},
-	};
-};
+import { decideRestore, useScrollAnchor } from './useScrollAnchor';
 
 describe('useScrollAnchor', () => {
-	let raf: ReturnType<typeof installRaf>;
+	describe('decideRestore', () => {
+		// The "top anchor": top-visible item captured before a resize.
+		// index = item index; subOffset = pixels into that item where the viewport top sits.
+		const anchor = { index: 7, subOffset: 23.5 };
 
-	beforeEach(() => {
-		raf = installRaf();
-	});
-
-	afterEach(() => {
-		raf.uninstall();
-	});
-
-	it('restores the top-visible item when scrollSize changes', () => {
-		const handle = makeHandle({ scrollOffset: 723.5 });
-		// findItemIndex(723.5) = 7; getItemOffset(7) = 700 → captured subOffset = 23.5.
-
-		const { result } = renderHook(() =>
-			useScrollAnchor({ virtualizerRef: refTo(handle), isAtBottom: { current: false }, suppress: false }),
-		);
-
-		act(() => {
-			result.current.updateTopAnchor();
-		});
-		act(() => raf.flush()); // baseline; sets `lastScrollSize`
-
-		// Items above grew: item 7 now starts at 740, scrollSize bumped.
-		handle.getItemOffset.mockImplementation((index: number) => (index === 7 ? 740 : index * 100));
-		handle.scrollSize = 1100;
-		act(() => raf.flush());
-
-		expect(handle.scrollTo).toHaveBeenCalledWith(763.5); // 740 + 23.5
-	});
-
-	it('re-pins to the new bottom when isAtBottom is true', () => {
-		const handle = makeHandle();
-		renderHook(() => useScrollAnchor({ virtualizerRef: refTo(handle), isAtBottom: { current: true }, suppress: false }));
-
-		act(() => raf.flush()); // baseline
-		handle.scrollSize = 1500; // items grew
-		act(() => raf.flush());
-
-		expect(handle.scrollTo).toHaveBeenCalledWith(1200); // 1500 - 300 viewport
-	});
-
-	it('respects the suppress flag and resumes when it flips back', () => {
-		const handle = makeHandle();
-		// Stable refs across rerenders so the hook's effect isn't torn down on prop change.
-		const virtualizerRef = refTo(handle);
-		const isAtBottom = { current: true };
-		const { rerender } = renderHook(({ suppress }) => useScrollAnchor({ virtualizerRef, isAtBottom, suppress }), {
-			initialProps: { suppress: true },
+		it('returns null when no decision is needed (first tick, or scrollSize unchanged)', () => {
+			// `handle` is a slice of virtua's VirtualizerHandle — all pixels:
+			// scrollOffset (current scroll position), scrollSize (total content height), viewportSize (visible area).
+			const handle = { scrollOffset: 723.5, scrollSize: 5000, viewportSize: 300 };
+			expect(decideRestore(handle, null, anchor)).toBeNull(); // first tick
+			expect(decideRestore(handle, 5000, anchor)).toBeNull(); // scrollSize unchanged
 		});
 
-		act(() => raf.flush()); // baseline
-		handle.scrollSize = 1500;
-		act(() => raf.flush()); // suppressed → no scrollTo
+		it('returns top-anchor when user is not at bottom and scrollSize changed', () => {
+			// distFromBottom = 5000 - 723.5 - 300 = 3976.5, far from bottom.
+			const handle = { scrollOffset: 723.5, scrollSize: 5100, viewportSize: 300 };
+			expect(decideRestore(handle, 5000, anchor)).toEqual({ kind: 'top-anchor', index: 7, offset: 23.5 });
+		});
 
-		expect(handle.scrollTo).not.toHaveBeenCalled();
+		it('returns pin-bottom when user was exactly at bottom pre-resize', () => {
+			// scrollOffset 700 + viewportSize 300 = 1000 = lastScrollSize, so at bottom.
+			const handle = { scrollOffset: 700, scrollSize: 1500, viewportSize: 300 };
+			expect(decideRestore(handle, 1000, anchor)).toEqual({ kind: 'pin-bottom', index: 0, offset: 1200 });
+		});
 
-		rerender({ suppress: false });
-		handle.scrollSize = 1800;
-		act(() => raf.flush()); // now allowed
+		it('returns pin-bottom when scrolled past the apparent bottom (padding case)', () => {
+			// scrollOffset 740 + viewportSize 300 = 1040 > lastScrollSize 1000, so at bottom.
+			// .messages-list padding lets scrollOffset + viewportSize exceed scrollSize at the visual bottom.
+			const handle = { scrollOffset: 740, scrollSize: 1500, viewportSize: 300 };
+			expect(decideRestore(handle, 1000, anchor)).toEqual({ kind: 'pin-bottom', index: 0, offset: 1200 });
+		});
 
-		expect(handle.scrollTo).toHaveBeenCalledWith(1500); // 1800 - 300
+		it('returns top-anchor when genuinely 10px above the bottom (no fuzzy threshold)', () => {
+			// scrollOffset 690 + viewportSize 300 = 990 < lastScrollSize 1000, so not at bottom.
+			const handle = { scrollOffset: 690, scrollSize: 1500, viewportSize: 300 };
+			expect(decideRestore(handle, 1000, anchor)).toEqual({ kind: 'top-anchor', index: 7, offset: 23.5 });
+		});
+
+		it('clamps pin-bottom offset to 0 when scrollSize < viewportSize', () => {
+			// New scrollSize 200 - viewportSize 300 = -100, clamp to 0.
+			const handle = { scrollOffset: 700, scrollSize: 200, viewportSize: 300 };
+			expect(decideRestore(handle, 1000, anchor)).toEqual({ kind: 'pin-bottom', index: 0, offset: 0 });
+		});
 	});
 
-	it('cancels the requestAnimationFrame loop on unmount', () => {
-		const handle = makeHandle();
-		const { unmount } = renderHook(() =>
-			useScrollAnchor({ virtualizerRef: refTo(handle), isAtBottom: { current: false }, suppress: false }),
-		);
+	describe('hook integration', () => {
+		type MockHandle = {
+			scrollOffset: number;
+			scrollSize: number;
+			viewportSize: number;
+			findItemIndex: jest.Mock;
+			getItemOffset: jest.Mock;
+			scrollTo: jest.Mock;
+			scrollToIndex: jest.Mock;
+		};
 
-		act(() => raf.flush()); // baseline
-		unmount();
+		const makeHandle = (): MockHandle => ({
+			scrollOffset: 700,
+			scrollSize: 1000,
+			viewportSize: 300,
+			findItemIndex: jest.fn(),
+			getItemOffset: jest.fn(),
+			scrollTo: jest.fn(),
+			scrollToIndex: jest.fn(),
+		});
 
-		handle.scrollSize = 9999;
-		act(() => raf.flush());
+		const refTo = (h: MockHandle): MutableRefObject<VirtualizerHandle | null> => ({ current: h as unknown as VirtualizerHandle });
 
-		expect(handle.scrollTo).not.toHaveBeenCalled();
+		// Step the rAF loop one tick at a time; the next rAF the tick re-schedules
+		// stays queued for the following call.
+		const tick = () => act(() => jest.advanceTimersToNextTimer(1));
+
+		beforeEach(() => {
+			jest.useFakeTimers();
+		});
+
+		afterEach(() => {
+			jest.useRealTimers();
+		});
+
+		it('drives the rAF loop and applies the decision on scrollSize change', () => {
+			const handle = makeHandle();
+			renderHook(() => useScrollAnchor({ virtualizerRef: refTo(handle), suppress: false }));
+
+			tick(); // baseline
+			handle.scrollSize = 1500;
+			tick(); // detects change, user was at bottom, pin-bottom
+
+			expect(handle.scrollTo).toHaveBeenCalledWith(1200); // 1500 - 300
+		});
+
+		it('captures the top-visible item via updateTopAnchor and uses it on top-anchor restore', () => {
+			const handle: MockHandle = {
+				scrollOffset: 723.5,
+				scrollSize: 5000,
+				viewportSize: 300,
+				findItemIndex: jest.fn(() => 7),
+				getItemOffset: jest.fn(() => 700),
+				scrollTo: jest.fn(),
+				scrollToIndex: jest.fn(),
+			};
+			const { result } = renderHook(() => useScrollAnchor({ virtualizerRef: refTo(handle), suppress: false }));
+
+			act(() => {
+				result.current.updateTopAnchor();
+			});
+			// subOffset captured = 723.5 - 700 = 23.5
+
+			tick(); // baseline
+			handle.scrollSize = 5100;
+			tick(); // change, not at bottom, top-anchor uses captured (7, 23.5)
+
+			expect(handle.scrollToIndex).toHaveBeenCalledWith(7, { align: 'start', offset: 23.5 });
+		});
+
+		it('skips the decision while suppress is true and resumes when it flips false', () => {
+			const handle = makeHandle();
+			const virtualizerRef = refTo(handle);
+			const { rerender } = renderHook(({ suppress }) => useScrollAnchor({ virtualizerRef, suppress }), {
+				initialProps: { suppress: true },
+			});
+
+			tick(); // baseline
+			handle.scrollSize = 1500;
+			tick(); // change observed, but suppressed
+
+			expect(handle.scrollTo).not.toHaveBeenCalled();
+
+			rerender({ suppress: false });
+			handle.scrollOffset = 1200; // re-anchor at the new bottom
+			handle.scrollSize = 1800;
+			tick(); // change observed, suppress released, pin-bottom
+
+			expect(handle.scrollTo).toHaveBeenCalledWith(1500); // 1800 - 300
+		});
+
+		it('cancels the rAF loop on unmount', () => {
+			const handle = makeHandle();
+			const { unmount } = renderHook(() => useScrollAnchor({ virtualizerRef: refTo(handle), suppress: false }));
+
+			tick(); // baseline
+			unmount();
+
+			handle.scrollSize = 9999;
+			// If cleanup ran, no pending timers; this is a no-op.
+			// Otherwise the leaked tick fires and (scrollOffset 0, not at bottom) calls scrollToIndex.
+			act(() => {
+				jest.runOnlyPendingTimers();
+			});
+
+			expect(handle.scrollToIndex).not.toHaveBeenCalled();
+		});
 	});
 });

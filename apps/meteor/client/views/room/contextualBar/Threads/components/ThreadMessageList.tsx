@@ -15,6 +15,7 @@ import { ThreadMessageItem } from './ThreadMessageItem';
 import { setMessageJumpQueryStringParameter } from '../../../../../lib/utils/setMessageJumpQueryStringParameter';
 import { BubbleDate } from '../../../BubbleDate';
 import { useKeepMountedMessages } from '../../../MessageList/hooks/useKeepMountedMessages';
+import { useScrollAnchor } from '../../../MessageList/hooks/useScrollAnchor';
 import { isMessageNewDay } from '../../../MessageList/lib/isMessageNewDay';
 import MessageListProvider from '../../../MessageList/providers/MessageListProvider';
 import { clearHighlightMessage, setHighlightMessage } from '../../../MessageList/providers/messageHighlightSubscription';
@@ -78,6 +79,11 @@ const ThreadMessageList = ({ mainMessage, shouldJumpToBottom, setShouldJumpToBot
 	const lastScrollSizeRef = useRef(0);
 
 	const items = loading ? [] : [mainMessage, ...messages];
+
+	const { updateTopAnchor } = useScrollAnchor({
+		virtualizerRef,
+		suppress: !!msgJumpParam || shouldJumpToBottom,
+	});
 
 	const threadMsgTargetIndex = useMemo(() => {
 		if (!msgJumpParam || loading) {
@@ -194,7 +200,8 @@ const ThreadMessageList = ({ mainMessage, shouldJumpToBottom, setShouldJumpToBot
 							if (!handle) return;
 							isAtBottom.current = offset - handle.scrollSize + handle.viewportSize >= -20;
 
-							const topMessage = items[handle.findItemIndex(handle.scrollOffset)];
+							const topItemIndex = updateTopAnchor();
+							const topMessage = items[topItemIndex];
 							handleDateScroll(topMessage);
 						}}
 					>

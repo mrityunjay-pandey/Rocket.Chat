@@ -1,3 +1,4 @@
+import type { IMessage } from '@rocket.chat/core-typings';
 import { isThreadMainMessage, isThreadMessage } from '@rocket.chat/core-typings';
 import { useEndpoint, useSearchParameter } from '@rocket.chat/ui-contexts';
 import { useQuery } from '@tanstack/react-query';
@@ -5,38 +6,24 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { useEffect } from 'react';
 import type { WindowVirtualizerHandle } from 'virtua';
 
+import { useIsItemVisible } from './useIsItemVisible';
 import { RoomHistoryManager } from '../../../../../app/ui-utils/client';
 import { messagesQueryKeys } from '../../../../lib/queryKeys';
 import { mapMessageFromApi } from '../../../../lib/utils/mapMessageFromApi';
 import { setMessageJumpQueryStringParameter } from '../../../../lib/utils/setMessageJumpQueryStringParameter';
 import { clearHighlightMessage, setHighlightMessage } from '../providers/messageHighlightSubscription';
 
-const isMessageFullyVisible = (messageId: string): boolean => {
-	if (typeof document === 'undefined') {
-		return false;
-	}
-	const scroller = document.querySelector('.messages-list');
-	if (!(scroller instanceof HTMLElement)) {
-		return false;
-	}
-	const messageEl = scroller.querySelector(`[data-id="${CSS.escape(messageId)}"]`);
-	if (!(messageEl instanceof HTMLElement)) {
-		return false;
-	}
-	const sRect = scroller.getBoundingClientRect();
-	const mRect = messageEl.getBoundingClientRect();
-	return mRect.top >= sRect.top && mRect.bottom <= sRect.bottom;
-};
-
 type UseTryToJumpToMessageProps = {
 	rid: string;
 	virtualizerRef: MutableRefObject<WindowVirtualizerHandle | null>;
 	setIsJumpingToMessage: Dispatch<SetStateAction<boolean>>;
-	messages: { _id: string }[];
+	messages: IMessage[];
+	indexOffset?: number;
 };
 
-const useTryToJumpToMessage = ({ rid, virtualizerRef, setIsJumpingToMessage, messages }: UseTryToJumpToMessageProps) => {
+const useTryToJumpToMessage = ({ rid, virtualizerRef, setIsJumpingToMessage, messages, indexOffset = 0 }: UseTryToJumpToMessageProps) => {
 	const messageJumpParam = useSearchParameter('msg');
+	const isItemVisible = useIsItemVisible();
 
 	const getMessage = useEndpoint('GET', '/v1/chat.getMessage');
 
@@ -83,15 +70,20 @@ const useTryToJumpToMessage = ({ rid, virtualizerRef, setIsJumpingToMessage, mes
 			return;
 		}
 
-		const messageIndex = messages.indexOf(loadedMessage);
+		// If the target is a thread-reply broadcast (the "also send to channel" copy),
+		// the click opens the thread separately — don't shift the main channel position.
+		if (isThreadMessage(loadedMessage) && !isThreadMainMessage(loadedMessage)) {
+			setIsJumpingToMessage(false);
+			return;
+		}
 
-		// Skip the scroll-to-center when the target message is already fully visible. This
-		// prevents unnecessary jumps when opening a thread whose parent is already on screen,
-		// or when clicking a permalink to a message currently in view — in both cases the
-		// user expects only the highlight, not a layout shift.
-		if (!isMessageFullyVisible(loadedMessage._id)) {
-			// TODO: Calculate the offset of the page, for the message to be in the center of the page
-			virtualizerRef.current?.scrollToIndex(messageIndex, {
+		const messageIndex = messages.indexOf(loadedMessage);
+		const virtualizerIndex = messageIndex + indexOffset;
+
+		// Already visible — just highlight, no scroll needed.
+		const handle = virtualizerRef.current;
+		if (handle && !isItemVisible(handle, virtualizerIndex)) {
+			handle.scrollToIndex(virtualizerIndex, {
 				align: 'center',
 			});
 		}
@@ -106,7 +98,7 @@ const useTryToJumpToMessage = ({ rid, virtualizerRef, setIsJumpingToMessage, mes
 			setIsJumpingToMessage(false);
 			setMessageJumpQueryStringParameter(null);
 		}, 500);
-	}, [messageJumpParam, virtualizerRef, setIsJumpingToMessage, rid, messages, message]);
+	}, [messageJumpParam, virtualizerRef, setIsJumpingToMessage, rid, messages, message, isItemVisible, indexOffset]);
 };
 
 export default useTryToJumpToMessage;
