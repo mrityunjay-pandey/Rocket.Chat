@@ -149,12 +149,11 @@ describe('useScrollAnchor', () => {
 			unmount();
 
 			handle.scrollSize = 9999;
-			// If cleanup ran, no pending timers; this is a no-op.
-			// Otherwise the leaked tick fires and (scrollOffset 0, not at bottom) calls scrollToIndex.
 			act(() => {
 				jest.runOnlyPendingTimers();
 			});
 
+			expect(handle.scrollTo).not.toHaveBeenCalled();
 			expect(handle.scrollToIndex).not.toHaveBeenCalled();
 		});
 	});
