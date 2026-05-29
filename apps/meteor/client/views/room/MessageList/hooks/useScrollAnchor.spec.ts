@@ -136,6 +136,18 @@ describe('useScrollAnchor', () => {
 			expect(handle.scrollToIndex).toHaveBeenCalledWith(7, { align: 'end' });
 		});
 
+		it('does not restore on a size change before a settled frame has captured at-bottom', () => {
+			const handle = makeHandle({ scrollOffset: 200, scrollSize: 1000, viewportSize: 300 });
+			renderHook(() => useScrollAnchor({ virtualizerRef: refTo(handle), suppress: false }));
+
+			tick(); // baseline
+			handle.scrollSize = 1500; // size changes before any settled frame
+			tick();
+
+			expect(handle.scrollToIndex).not.toHaveBeenCalled();
+			expect(handle.scrollTo).not.toHaveBeenCalled();
+		});
+
 		it('cancels the rAF loop on unmount', () => {
 			const handle = makeHandle();
 			const { unmount } = renderHook(() => useScrollAnchor({ virtualizerRef: refTo(handle), suppress: false }));

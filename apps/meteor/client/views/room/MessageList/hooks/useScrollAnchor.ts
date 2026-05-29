@@ -17,7 +17,7 @@ type UseScrollAnchorProps = {
  */
 export const useScrollAnchor = ({ virtualizerRef, suppress, pinToBottom = false }: UseScrollAnchorProps) => {
 	const topAnchorRef = useRef<{ index: number; subOffset: number }>({ index: 0, subOffset: 0 });
-	const wasAtBottomRef = useRef(true);
+	const wasAtBottomRef = useRef<boolean | null>(null);
 	const suppressRef = useRef(suppress);
 	suppressRef.current = suppress;
 	const pinToBottomRef = useRef(pinToBottom);
@@ -38,11 +38,11 @@ export const useScrollAnchor = ({ virtualizerRef, suppress, pinToBottom = false 
 						// is off by a sub-pixel and never matches.
 						wasAtBottomRef.current = handle.scrollOffset >= Math.floor(handle.scrollSize - handle.viewportSize);
 					} else if (!suppressRef.current) {
-						if (pinToBottomRef.current || wasAtBottomRef.current) {
+						if (pinToBottomRef.current || wasAtBottomRef.current === true) {
 							// Pin via the last item, not a raw scrollTo: virtua clamps a scrollTo to its content
 							// height, which stops short of the padded bottom and clips the newest message.
 							handle.scrollToIndex(Math.max(0, handle.findItemIndex(handle.scrollSize)), { align: 'end' });
-						} else {
+						} else if (wasAtBottomRef.current === false) {
 							const { index, subOffset } = topAnchorRef.current;
 							handle.scrollToIndex(index, { align: 'start', offset: subOffset });
 						}
