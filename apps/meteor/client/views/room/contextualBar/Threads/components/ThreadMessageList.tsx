@@ -82,7 +82,8 @@ const ThreadMessageList = ({ mainMessage, shouldJumpToBottom, setShouldJumpToBot
 
 	const { updateTopAnchor } = useScrollAnchor({
 		virtualizerRef,
-		suppress: !!msgJumpParam || shouldJumpToBottom,
+		suppress: !!msgJumpParam,
+		pinToBottom: shouldJumpToBottom,
 	});
 
 	const threadMsgTargetIndex = useMemo(() => {

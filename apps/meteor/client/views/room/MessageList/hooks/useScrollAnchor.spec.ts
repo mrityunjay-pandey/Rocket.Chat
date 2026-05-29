@@ -67,6 +67,20 @@ describe('useScrollAnchor', () => {
 			expect(handle.scrollToIndex).toHaveBeenCalledWith(7, { align: 'end' });
 		});
 
+		it('pins to bottom on a change when pinToBottom is set, even if not at bottom', () => {
+			// e.g. just sent a message (shouldJumpToBottom): a late-loading video grows while
+			// the user is being scrolled to the bottom; we must follow it down, not top-anchor.
+			const handle = makeHandle({ scrollOffset: 200, scrollSize: 1000, viewportSize: 300 });
+			renderHook(() => useScrollAnchor({ virtualizerRef: refTo(handle), suppress: false, pinToBottom: true }));
+
+			tick(); // baseline
+			tick(); // settled, NOT at bottom -> wasAtBottom false
+			handle.scrollSize = 1500;
+			tick(); // changed -> pinToBottom forces pin-bottom despite wasAtBottom false
+
+			expect(handle.scrollToIndex).toHaveBeenCalledWith(7, { align: 'end' });
+		});
+
 		it('captures not-at-bottom on a settled frame and restores the top anchor on a change', () => {
 			const handle = makeHandle({ scrollOffset: 723.5, scrollSize: 5000, viewportSize: 300, getItemOffset: jest.fn(() => 700) });
 			const { result } = renderHook(() => useScrollAnchor({ virtualizerRef: refTo(handle), suppress: false }));

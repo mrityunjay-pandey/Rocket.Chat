@@ -190,7 +190,8 @@ export const MessageList = function MessageList({
 
 	const { updateTopAnchor } = useScrollAnchor({
 		virtualizerRef,
-		suppress: isJumpingToMessage || shouldJumpToBottom,
+		suppress: isJumpingToMessage,
+		pinToBottom: shouldJumpToBottom,
 	});
 
 	const subscription = useRoomSubscription();
