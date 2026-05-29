@@ -8,60 +8,46 @@ type UseScrollAnchorProps = {
 	suppress: boolean;
 };
 
-type RestoreAction = {
-	kind: 'pin-bottom' | 'top-anchor';
-	index: number;
-	offset: number;
-};
-
-export const decideRestore = (
-	handle: Pick<VirtualizerHandle, 'scrollOffset' | 'scrollSize' | 'viewportSize'>,
-	lastScrollSize: number | null,
-	topAnchor: { index: number; subOffset: number },
-): RestoreAction | null => {
-	if (lastScrollSize === null || lastScrollSize === handle.scrollSize) {
-		return null;
-	}
-	// Compute at-bottom from scroll math; an `isAtBottom` ref would be stale here
-	// because scroll events don't fire during a pure resize.
-	const wasAtBottom = handle.scrollOffset + handle.viewportSize >= lastScrollSize;
-	if (wasAtBottom) {
-		return { kind: 'pin-bottom', index: 0, offset: Math.max(0, handle.scrollSize - handle.viewportSize) };
-	}
-	return { kind: 'top-anchor', index: topAnchor.index, offset: topAnchor.subOffset };
-};
-
 /**
- * Virtua-aware replacement for the browser's CSS Scroll Anchoring. Polls
- * `handle.scrollSize` each frame; when it changes, restores the user's visible
- * position via `handle.scrollToIndex()` — virtua re-measures internally, so we
- * don't have to wait for offsets to settle.
- *
- * Callers must invoke `updateTopAnchor` from `onScroll`; it returns the top item's
- * index so the caller can reuse it.
+ * Virtua-aware scroll anchoring: on a content- or viewport-size change, pins to the
+ * bottom if the user was there, else holds the top-visible item. At-bottom is captured
+ * only on settled frames — virtua's sizes swing mid-resize and would falsely read "at
+ * bottom". Callers must call `updateTopAnchor` from `onScroll`.
  */
 export const useScrollAnchor = ({ virtualizerRef, suppress }: UseScrollAnchorProps) => {
 	const topAnchorRef = useRef<{ index: number; subOffset: number }>({ index: 0, subOffset: 0 });
+	const wasAtBottomRef = useRef(true);
 	const suppressRef = useRef(suppress);
 	suppressRef.current = suppress;
 
 	useEffect(() => {
 		let lastScrollSize: number | null = null;
+		let lastViewportSize: number | null = null;
 
 		const tick = () => {
 			const handle = virtualizerRef.current;
 			if (handle) {
-				if (!suppressRef.current) {
-					const action = decideRestore(handle, lastScrollSize, topAnchorRef.current);
-					if (action) {
-						if (action.kind === 'pin-bottom') {
-							handle.scrollTo(action.offset);
+				if (lastScrollSize !== null) {
+					const changed = handle.scrollSize !== lastScrollSize || handle.viewportSize !== lastViewportSize;
+					if (!changed) {
+						// "at bottom" = scrollOffset reached its max (scrollSize - viewportSize). That max is
+						// fractional but scrollOffset is a whole pixel, so floor it, otherwise the comparison
+						// is off by a sub-pixel and never matches.
+						wasAtBottomRef.current = handle.scrollOffset >= Math.floor(handle.scrollSize - handle.viewportSize);
+					} else if (!suppressRef.current) {
+						if (wasAtBottomRef.current) {
+							// Pin via the last item, not a raw scrollTo: virtua clamps a scrollTo to its content
+							// height, which stops short of the padded bottom and clips the newest message.
+							handle.scrollToIndex(Math.max(0, handle.findItemIndex(handle.scrollSize)), { align: 'end' });
 						} else {
-							handle.scrollToIndex(action.index, { align: 'start', offset: action.offset });
+							const { index, subOffset } = topAnchorRef.current;
+							handle.scrollToIndex(index, { align: 'start', offset: subOffset });
 						}
 					}
 				}
+
 				lastScrollSize = handle.scrollSize;
+				lastViewportSize = handle.viewportSize;
 			}
 			rafId = requestAnimationFrame(tick);
 		};
