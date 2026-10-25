@@ -1,4 +1,9 @@
-import { availableTranslationNamespaces, defaultTranslationNamespace, extractTranslationNamespaces } from '@rocket.chat/i18n';
+import {
+	availableTranslationNamespaces,
+	defaultTranslationNamespace,
+	extractTranslationNamespaces,
+	getFallbackLanguages,
+} from '@rocket.chat/i18n';
 import languages from '@rocket.chat/i18n/dist/languages';
 
 import { i18n } from '../../lib/i18n';
@@ -79,7 +84,8 @@ if (false) {
 
 void i18n.init({
 	lng: 'en',
-	fallbackLng: 'en',
+	load: 'currentOnly',
+	fallbackLng: getFallbackLanguages,
 	defaultNS: defaultTranslationNamespace,
 	ns: availableTranslationNamespaces,
 	nsSeparator: '.',

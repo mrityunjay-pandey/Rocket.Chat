@@ -126,6 +126,27 @@ const namespacesMap: Record<TranslationNamespace, true> = {
 export const availableTranslationNamespaces = Object.keys(namespacesMap) as TranslationNamespace[];
 export const defaultTranslationNamespace: TranslationNamespace = 'core';
 
+// Traditional Chinese locales must never fall back to the Simplified Chinese `zh` file
+const traditionalChineseFallbacks: Record<string, string[]> = {
+	'zh-HK': ['zh-TW', 'en'],
+	'zh-TW': ['en'],
+};
+
+/**
+ * The languages to look a missing key up in, in order, for i18next's `fallbackLng` with `load: 'currentOnly'`
+ *
+ * @param language the language the key was missing from
+ */
+export const getFallbackLanguages = (language: string): string[] => {
+	const traditionalChineseFallback = traditionalChineseFallbacks[language];
+	if (traditionalChineseFallback) {
+		return traditionalChineseFallback;
+	}
+
+	const [baseLanguage] = language.split('-');
+	return baseLanguage !== language && baseLanguage !== 'en' ? [baseLanguage, 'en'] : ['en'];
+};
+
 export const applyCustomTranslations = (
 	i18n: i18n,
 	parsedCustomTranslations: Record<string, Record<string, string>>,
